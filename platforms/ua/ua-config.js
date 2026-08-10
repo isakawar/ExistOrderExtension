@@ -8,11 +8,6 @@
   const OFFICE_ID_PICKUP = 8; // ID магазину самовивозу (Київ, Нивки)
   const ADDRESS_TEXT = 'Київ, вулиця Хрещатик, 1'; // адреса для кур'єрської доставки
 
-  // Патерни хосту для перевірки "поточна вкладка = UA платформа".
-  // Порожній масив = перевірка домену пропускається, лишається лише перевірка сесії/API.
-  // QA може заповнити реальними доменами, напр. ['exist.ua'].
-  const HOSTNAME_HINTS = [];
-
   const DELIVERY_METHODS = [
     { id: 'office', label: 'Самовивіз' },
     { id: 'nova_pochta', label: 'Нова Пошта — відділення' },
@@ -43,7 +38,7 @@
   }
 
   self.SmokeUA = self.SmokeUA || {};
-  self.SmokeUA.CONFIG = { CITY_ID_NP, OFFICE_ID_SHIP, OFFICE_ID_PICKUP, ADDRESS_TEXT, HOSTNAME_HINTS };
+  self.SmokeUA.CONFIG = { CITY_ID_NP, OFFICE_ID_SHIP, OFFICE_ID_PICKUP, ADDRESS_TEXT };
   self.SmokeUA.DELIVERY_METHODS = DELIVERY_METHODS;
   self.SmokeUA.PAYMENT_METHODS = PAYMENT_METHODS;
   self.SmokeUA.isCombinationAllowed = isCombinationAllowed;

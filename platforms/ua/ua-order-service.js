@@ -131,6 +131,23 @@
       return { ok: false, error: 'HTTP ' + result.status + ' (checkout/add)', raw: result.data };
     }
 
+    // For installment payments (Mono/Privat), the site's own /checkout/success/ page
+    // fires this GET as it loads — that's what actually registers the partpay
+    // application server-side (the order's additional_data.linked_entity only appears
+    // after this call). Without it the order is created fine, but the "Оплатити
+    // частями" button never shows up in order history. Best-effort: an order that
+    // was already created successfully should still count as passed either way.
+    const paymentMeta = self.SmokeUA.PAYMENT_METHODS.find((p) => p.id === scenario.payment);
+    if (paymentMeta && paymentMeta.installment) {
+      log('step', 'Finalizing installment application...');
+      const successCall = await api('/api/v1/cart/checkout/success/', 'GET');
+      if (successCall.status === 200) {
+        log('ok', 'Installment application registered');
+      } else {
+        log('warn', 'Installment finalize call failed (HTTP ' + successCall.status + ') — order created, but "Оплатити частями" may not appear');
+      }
+    }
+
     return { ok: true, orderId: extractOrderId(result.data), raw: result.data };
   }
 

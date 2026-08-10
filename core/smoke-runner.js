@@ -1,15 +1,33 @@
 // Injected into the active tab last, after the platform adapter + scenario-generator.
 // Orchestrates the sequential run and streams progress to the popup via
 // chrome.runtime.sendMessage (the popup is always listening while a run is active).
+//
+// The popup is ephemeral — Chrome destroys its document whenever it loses focus or
+// is closed, but this script keeps running in the tab regardless (it was injected
+// via chrome.scripting.executeScript, independent of the popup's lifecycle). So we
+// mirror progress into self.__smokeState too: if the popup reopens mid-run it can
+// read that snapshot to reconnect instead of starting a duplicate test.
 (function () {
   let stopRequested = false;
+
+  self.__smokeRunning = self.__smokeRunning || false;
+  self.__smokeState = self.__smokeState || null;
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'SMOKE_STOP') stopRequested = true;
   });
 
   function send(type, payload) {
-    chrome.runtime.sendMessage({ type, payload });
+    chrome.runtime.sendMessage({ type, payload }, () => {
+      // Swallow "Receiving end does not exist" when the popup is closed —
+      // the run must keep going either way, only the live UI is missing it.
+      void chrome.runtime.lastError;
+    });
+  }
+
+  function pushResult(result) {
+    if (self.__smokeState) self.__smokeState.results.push(result);
+    send('SMOKE_ORDER_RESULT', result);
   }
 
   function labelOf(list, id) {
@@ -34,25 +52,19 @@
     });
 
     if (!scenario.allowed) {
-      send('SMOKE_ORDER_RESULT', { index, status: 'skipped', deliveryLabel, paymentLabel, reason: scenario.reason });
+      pushResult({ index, status: 'skipped', deliveryLabel, paymentLabel, reason: scenario.reason });
       return;
     }
 
     try {
       const outcome = await adapter.runScenario(scenario, phone, (level, text) => send('SMOKE_LOG', { level, text }));
       if (outcome.ok) {
-        send('SMOKE_ORDER_RESULT', { index, status: 'passed', deliveryLabel, paymentLabel, orderId: outcome.orderId });
+        pushResult({ index, status: 'passed', deliveryLabel, paymentLabel, orderId: outcome.orderId, raw: outcome.raw });
       } else {
-        send('SMOKE_ORDER_RESULT', { index, status: 'failed', deliveryLabel, paymentLabel, error: outcome.error });
+        pushResult({ index, status: 'failed', deliveryLabel, paymentLabel, error: outcome.error, raw: outcome.raw });
       }
     } catch (e) {
-      send('SMOKE_ORDER_RESULT', {
-        index,
-        status: 'failed',
-        deliveryLabel,
-        paymentLabel,
-        error: String((e && e.message) || e),
-      });
+      pushResult({ index, status: 'failed', deliveryLabel, paymentLabel, error: String((e && e.message) || e) });
     }
   }
 
@@ -70,24 +82,26 @@
         send('SMOKE_LOG', { level, text })
       );
       if (outcome.ok) {
-        send('SMOKE_ORDER_RESULT', {
+        pushResult({
           index,
           status: 'passed',
           deliveryLabel: "1 клік",
           paymentLabel: '—',
           orderId: outcome.orderId,
+          raw: outcome.raw,
         });
       } else {
-        send('SMOKE_ORDER_RESULT', {
+        pushResult({
           index,
           status: 'failed',
           deliveryLabel: "1 клік",
           paymentLabel: '—',
           error: outcome.error,
+          raw: outcome.raw,
         });
       }
     } catch (e) {
-      send('SMOKE_ORDER_RESULT', {
+      pushResult({
         index,
         status: 'failed',
         deliveryLabel: "1 клік",
@@ -98,12 +112,19 @@
   }
 
   async function runSmokeTest(config) {
+    if (self.__smokeRunning) {
+      send('SMOKE_FATAL', { error: 'Smoke test вже виконується на цій вкладці' });
+      return;
+    }
+
     stopRequested = false;
+    self.__smokeRunning = true;
     const { platform, phone, count, deliveries, payments, oneClickCount } = config;
 
     const adapter = platform === 'UA' ? self.SmokeUA : self.SmokePL;
     if (!adapter) {
       send('SMOKE_FATAL', { error: 'Адаптер платформи "' + platform + '" не знайдено' });
+      self.__smokeRunning = false;
       return;
     }
 
@@ -124,42 +145,47 @@
     const total = scenarios.length + oneClickTotal;
     if (!total) {
       send('SMOKE_FATAL', { error: 'Не вдалося сформувати жодного сценарію — перевірте вибір доставки/оплати/кількості' });
+      self.__smokeRunning = false;
       return;
     }
 
+    self.__smokeState = { platform, total, results: [], startTime: Date.now(), stopped: false, done: false };
     send('SMOKE_START', { total, platform });
 
     let index = 0;
     for (const scenario of scenarios) {
       if (stopRequested) {
+        self.__smokeState.stopped = true;
         send('SMOKE_LOG', { level: 'warn', text: 'Зупинено користувачем' });
-        send('SMOKE_DONE', {});
-        return;
+        break;
       }
       index++;
       await runCartScenario(adapter, scenario, phone, index, total);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    if (oneClickEnabled) {
+    if (oneClickEnabled && !stopRequested) {
       const products = adapter.ONECLICK_PRODUCTS;
       const officeId = adapter.CONFIG.OFFICE_ID_PICKUP;
       for (let i = 0; i < oneClickCount; i++) {
         if (stopRequested) {
+          self.__smokeState.stopped = true;
           send('SMOKE_LOG', { level: 'warn', text: 'Зупинено користувачем' });
           break;
         }
         index++;
         const product = products[i % products.length];
         await runOneClickScenario(adapter, product, phone, officeId, index, total);
-        if (i < oneClickCount - 1) {
+        if (i < oneClickCount - 1 && !stopRequested) {
           send('SMOKE_LOG', { level: 'warn', text: 'Очікування 60с (ліміт "1 клік" — 1 заявка/хв на телефон)...' });
           await new Promise((resolve) => setTimeout(resolve, adapter.ONECLICK_THROTTLE_MS || 61000));
         }
       }
     }
 
-    send('SMOKE_DONE', {});
+    self.__smokeState.done = true;
+    self.__smokeRunning = false;
+    send('SMOKE_DONE', { stopped: self.__smokeState.stopped });
   }
 
   self.SmokeCore = self.SmokeCore || {};

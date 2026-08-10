@@ -8,77 +8,111 @@
 <body>
   <header>
     <h1>🚗 Order Smoke Test</h1>
+    <span id="headerStatus" class="header-status hidden"></span>
   </header>
 
   <div class="scroll-area">
-    <section class="field">
-      <label class="field-label">Платформа</label>
-      <div class="platform-toggle">
-        <label class="radio-item">
-          <input type="radio" name="platform" value="UA" checked />
-          <span>🇺🇦 UA</span>
-        </label>
-        <label class="radio-item">
-          <input type="radio" name="platform" value="PL" />
-          <span>🇵🇱 PL</span>
-        </label>
-      </div>
-    </section>
-
-    <section class="field-row">
-      <div class="field">
-        <label class="field-label" for="phone">Телефон</label>
-        <input type="tel" id="phone" value="+380666746222" />
-      </div>
-      <div class="field field-count">
-        <label class="field-label" for="count">К-сть</label>
-        <input type="number" id="count" value="10" min="1" max="100" />
-      </div>
-    </section>
-
-    <section class="field">
-      <div class="group-header">
-        <label class="field-label">Доставка</label>
-        <div class="group-toggle">
-          <button type="button" class="link-btn" data-select="delivery" data-value="all">Всі</button>
-          <button type="button" class="link-btn" data-select="delivery" data-value="none">Жодного</button>
+    <!-- ============ SETTINGS (INITIAL state only) ============ -->
+    <div id="settingsView">
+      <section class="field">
+        <label class="field-label">Платформа</label>
+        <div class="platform-toggle">
+          <label class="radio-item">
+            <input type="radio" name="platform" value="UA" checked />
+            <span>🇺🇦 UA</span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="platform" value="PL" />
+            <span>🇵🇱 PL</span>
+          </label>
         </div>
-      </div>
-      <div id="deliveryList" class="check-list"></div>
-    </section>
+        <div id="connectionBar" class="connection-bar"></div>
+        <div id="platformMismatch" class="mismatch-banner hidden"></div>
+      </section>
 
-    <section class="field">
-      <div class="group-header">
-        <label class="field-label">Оплата</label>
-        <div class="group-toggle">
-          <button type="button" class="link-btn" data-select="payment" data-value="all">Всі</button>
-          <button type="button" class="link-btn" data-select="payment" data-value="none">Жодного</button>
+      <section class="field-row">
+        <div class="field">
+          <label class="field-label" for="phone">Телефон</label>
+          <input type="tel" id="phone" value="+380666746222" />
         </div>
+        <div class="field field-count">
+          <label class="field-label" for="count">Замовлень</label>
+          <input type="number" id="count" value="10" min="0" max="100" />
+        </div>
+      </section>
+
+      <section class="field">
+        <div class="group-header">
+          <label class="field-label">Доставка</label>
+          <div class="group-toggle">
+            <button type="button" class="link-btn" data-select="delivery" data-value="all">Всі</button>
+            <button type="button" class="link-btn" data-select="delivery" data-value="none">Жодного</button>
+          </div>
+        </div>
+        <div id="deliveryList" class="check-list"></div>
+      </section>
+
+      <section class="field">
+        <div class="group-header">
+          <label class="field-label">Оплата</label>
+          <div class="group-toggle">
+            <button type="button" class="link-btn" data-select="payment" data-value="all">Всі</button>
+            <button type="button" class="link-btn" data-select="payment" data-value="none">Жодного</button>
+          </div>
+        </div>
+        <div id="paymentList" class="check-list"></div>
+      </section>
+
+      <section class="field">
+        <label class="check-item oneclick-toggle">
+          <input type="checkbox" id="oneClickEnabled" />
+          <span>🖱 Додати "Замовлення в 1 клік" (без вибору доставки/оплати)</span>
+        </label>
+        <div id="oneClickCountRow" class="field field-inline hidden">
+          <label class="field-label" for="oneClickCount">К-сть (по 60с кожна — ліміт сайту)</label>
+          <input type="number" id="oneClickCount" value="1" min="1" max="20" />
+        </div>
+      </section>
+
+      <section id="preRunSummary" class="pre-run-summary hidden"></section>
+    </div>
+
+    <!-- ============ RUNNING progress (RUNNING state only) ============ -->
+    <section id="progressView" class="progress-view hidden">
+      <div class="progress-header">
+        <span id="progressStatusPill" class="status-pill running">🟢 RUNNING</span>
+        <span id="progressCount">0 / 0</span>
       </div>
-      <div id="paymentList" class="check-list"></div>
+      <div class="progress-bar-track"><div id="progressBarFill" class="progress-bar-fill"></div></div>
+      <div id="currentOrderBox" class="current-order-box hidden">
+        <div id="currentOrderTitle" class="current-order-title"></div>
+        <div id="currentOrderMeta" class="current-order-meta"></div>
+        <div id="currentOrderStep" class="current-order-step"></div>
+      </div>
     </section>
 
-    <section class="field">
-      <label class="check-item oneclick-toggle">
-        <input type="checkbox" id="oneClickEnabled" />
-        <span>🖱 Додати "Замовлення в 1 клік" (без вибору доставки/оплати)</span>
-      </label>
-      <div id="oneClickCountRow" class="field field-inline hidden">
-        <label class="field-label" for="oneClickCount">К-сть (по 60с кожна — ліміт сайту)</label>
-        <input type="number" id="oneClickCount" value="1" min="1" max="20" />
-      </div>
+    <!-- ============ Completed header (COMPLETED/STOPPED state only) ============ -->
+    <section id="completedHeader" class="completed-header hidden"></section>
+
+    <!-- ============ Order list (RUNNING + COMPLETED/STOPPED) ============ -->
+    <section id="orderList" class="order-list hidden"></section>
+
+    <!-- ============ Technical log, collapsible (RUNNING + COMPLETED/STOPPED) ============ -->
+    <section id="logSection" class="log-section hidden">
+      <button type="button" id="logToggle" class="link-btn log-toggle">Показати технічний лог ▾</button>
+      <div id="log" class="log hidden"></div>
     </section>
-
-    <section id="log" class="log"></section>
-
-    <section id="summary" class="summary hidden"></section>
-
-    <button id="copySummaryBtn" class="btn-secondary hidden">📋 Copy Summary</button>
   </div>
 
-  <footer class="actions">
-    <button id="runBtn" class="btn-primary">🚀 Запустити Smoke Test</button>
-    <button id="stopBtn" class="btn-secondary" disabled>⏹ Stop</button>
+  <footer class="actions" id="footer">
+    <div id="footerRun" class="footer-group">
+      <button id="runBtn" class="btn-primary">🚀 Запустити Smoke Test</button>
+      <button id="stopBtn" class="btn-secondary" disabled>⏹ Stop</button>
+    </div>
+    <div id="footerCompleted" class="footer-group hidden">
+      <button id="copySummaryBtn" class="btn-secondary">📋 Copy Summary</button>
+      <button id="newTestBtn" class="btn-primary">🔄 New Test</button>
+    </div>
   </footer>
 
   <div id="confirmOverlay" class="overlay hidden">
@@ -93,6 +127,7 @@
 
   <script src="../platforms/ua/ua-config.js"></script>
   <script src="../platforms/ua/ua-oneclick-products.js"></script>
+  <script src="../core/site-config.js"></script>
   <script src="../core/logger.js"></script>
   <script src="popup.js"></script>
 </body>
