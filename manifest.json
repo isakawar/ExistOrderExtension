@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Order Smoke Test (QA)",
+  "version": "0.1.0",
+  "description": "Внутрішній QA-інструмент для smoke-тестування створення замовлень на UA/PL платформах",
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "permissions": ["scripting", "activeTab", "tabs"]
+}
