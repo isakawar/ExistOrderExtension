@@ -14,10 +14,19 @@ DevTools Console на UI з чекбоксами, live-логом і summary.
 
 ## Встановлення (unpacked)
 
+Покрокова інструкція для колег (як скачати з GitHub і встановити) —
+[INSTALL.md](./INSTALL.md). Коротко:
+
 1. `chrome://extensions`
 2. Увімкнути **Developer mode** (правий верхній кут).
 3. **Load unpacked** → вибрати папку `ExistChromeEstension`.
 4. Іконку розширення можна закріпити на панелі.
+
+## Альтернатива без встановлення
+
+Хто не хоче ставити розширення — той самий функціонал доступний як один
+файл для вставки в консоль браузера: `console-scripts/ua-smoke-console.js` та
+`console-scripts/pl-smoke-console.js`. Інструкція — [CONSOLE-SCRIPTS.md](./CONSOLE-SCRIPTS.md).
 
 ## Як користуватись
 
