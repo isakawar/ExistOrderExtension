@@ -1,4 +1,4 @@
-# Order Smoke Test — QA Chrome Extension
+# Exist Order Creator — QA Chrome Extension
 
 Внутрішній інструмент для швидкого smoke-тестування створення замовлень на UA/PL
 платформах після оновлення кодової бази 1С. Замінює ручний запуск JS-скрипта в
