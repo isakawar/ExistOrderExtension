@@ -11,12 +11,19 @@
     PL: ['stagingpl.exist.ua', '2407.pl', 'www.2407.pl'],
   };
 
-  // Exact match or subdomain match (e.g. "beta.staging.exist.ua" still counts as UA).
+  // Exact matches are checked across ALL platforms before any subdomain match is
+  // considered. Without this, "stagingpl.exist.ua" would false-match UA's
+  // "exist.ua" entry via the subdomain rule below (it genuinely IS a subdomain of
+  // exist.ua, hostname-wise) and never even reach its own exact PL entry — that
+  // bug let a QA run silently target the wrong platform's business logic.
   function detectPlatform(hostname) {
     if (!hostname) return null;
     for (const platform of Object.keys(SITE_HOSTNAMES)) {
+      if (SITE_HOSTNAMES[platform].includes(hostname)) return platform;
+    }
+    for (const platform of Object.keys(SITE_HOSTNAMES)) {
       for (const host of SITE_HOSTNAMES[platform]) {
-        if (hostname === host || hostname.endsWith('.' + host)) return platform;
+        if (hostname.endsWith('.' + host)) return platform;
       }
     }
     return null;
