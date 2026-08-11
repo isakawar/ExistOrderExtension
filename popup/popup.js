@@ -225,6 +225,15 @@ function updatePreRunSummary() {
     box.appendChild(el('div', null, `Доставка: ${deliveries.length}`));
     box.appendChild(el('div', null, `Оплата: ${payments.length}`));
     box.appendChild(el('div', null, `Валідних комбінацій: ${stats.validCombos} з ${stats.totalCombos}`));
+    if (stats.validCombos === 0) {
+      box.appendChild(
+        el('div', 'prs-warning', '⚠️ Жодна обрана комбінація доставки/оплати не є валідною — запуск заблоковано')
+      );
+    } else if (count > stats.validCombos) {
+      box.appendChild(
+        el('div', 'prs-hint', `Валідні комбінації використовуються повторно (${stats.validCombos} унікальних на ${count} замовлень)`)
+      );
+    }
   }
   const totalLine = [];
   if (count > 0) totalLine.push(`${count} замовлень (кошик)`);
@@ -255,6 +264,13 @@ function canRun() {
   const cartRequested = count > 0;
   if (cartRequested && (!deliveries.length || !payments.length)) {
     return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати (або встановіть кількість 0).' };
+  }
+  if (cartRequested) {
+    const meta = getAdapterMeta(state.platform);
+    const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
+    if (stats.validCombos === 0) {
+      return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
+    }
   }
   if (!cartRequested && !oneClickCount) {
     return { ok: false, reason: 'Вкажіть кількість замовлень або увімкніть "Замовлення в 1 клік".' };

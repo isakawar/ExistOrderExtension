@@ -222,6 +222,17 @@ input[type="number"] {
   color: #2563eb;
 }
 
+.pre-run-summary .prs-warning {
+  margin-top: 4px;
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.pre-run-summary .prs-hint {
+  margin-top: 4px;
+  color: #888;
+}
+
 /* ===== Running progress ===== */
 
 .progress-view {
