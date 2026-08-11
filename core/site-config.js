@@ -5,7 +5,10 @@
 (function () {
   const SITE_HOSTNAMES = {
     UA: ['staging.exist.ua', 'exist.ua', 'www.exist.ua'],
-    PL: ['staging.exist.pl', 'exist.pl', 'www.exist.pl'],
+    // stagingpl.exist.ua is verified live (branded "2407.PL" in the UI). The
+    // production domain wasn't confirmed — 2407.pl/www.2407.pl are best guesses
+    // from the site's own branding; adjust once the real prod host is known.
+    PL: ['stagingpl.exist.ua', '2407.pl', 'www.2407.pl'],
   };
 
   // Exact match or subdomain match (e.g. "beta.staging.exist.ua" still counts as UA).

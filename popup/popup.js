@@ -20,7 +20,6 @@ const state = {
   lastConfig: null,
 };
 
-// Only UA is wired up today; PL will register window.SmokePL once its adapter lands.
 function getAdapterMeta(platform) {
   return platform === 'UA' ? window.SmokeUA : window.SmokePL;
 }
@@ -132,12 +131,22 @@ function renderCheckboxes(container, items, groupName, checkedIds) {
 function renderPlatformOptions(savedDeliveries, savedPayments) {
   const meta = getAdapterMeta(state.platform);
   if (!meta) {
-    $('#deliveryList').innerHTML = '<div class="hint">Платформа PL ще не реалізована в цій версії.</div>';
+    $('#deliveryList').innerHTML = `<div class="hint">Платформа ${state.platform} ще не реалізована в цій версії.</div>`;
     $('#paymentList').innerHTML = '';
+    $('#oneClickSection').classList.add('hidden');
     return;
   }
   renderCheckboxes($('#deliveryList'), meta.DELIVERY_METHODS, 'delivery', savedDeliveries);
   renderCheckboxes($('#paymentList'), meta.PAYMENT_METHODS, 'payment', savedPayments);
+
+  // "1 клік" is UA-only business logic — only show the toggle when the adapter
+  // actually implements it (see platforms/ua/ua-oneclick-*.js).
+  const hasOneClick = !!(meta.ONECLICK_PRODUCTS && meta.ONECLICK_PRODUCTS.length);
+  $('#oneClickSection').classList.toggle('hidden', !hasOneClick);
+  if (!hasOneClick) {
+    $('#oneClickEnabled').checked = false;
+    $('#oneClickCountRow').classList.add('hidden');
+  }
 }
 
 function getSelected(groupName) {
@@ -229,7 +238,9 @@ function updatePreRunSummary() {
 // ============================================================
 
 function canRun() {
-  if (state.platform !== 'UA') return { ok: false, reason: 'Платформа PL ще не реалізована в цій версії.' };
+  if (!getAdapterMeta(state.platform)) {
+    return { ok: false, reason: `Платформа ${state.platform} ще не реалізована в цій версії.` };
+  }
   if (!siteOkForRun()) return { ok: false, reason: 'Невірний або невідомий сайт для вибраної платформи.' };
 
   const phone = $('#phone').value.trim();

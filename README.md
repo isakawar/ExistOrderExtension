@@ -6,8 +6,11 @@ DevTools Console на UI з чекбоксами, live-логом і summary.
 
 ## Статус
 
-- ✅ **UA** — повністю реалізовано (Phase 1–2).
-- ⏳ **PL** — ще не реалізовано (Phase 3), у попапі показується як "не реалізовано".
+- ✅ **UA** — повністю реалізовано, включно з "1 клік".
+- ✅ **PL** (`stagingpl.exist.ua`, бренд "2407.PL") — реалізовано для 7 з 9 способів
+  доставки (див. нижче чому саме 7). "1 клік" для PL не реалізовано — у PL немає
+  fixed-каталогу товарів, а спрощеного flow типу UA на сторінці товару не було в
+  вимогах.
 
 ## Встановлення (unpacked)
 
@@ -73,7 +76,10 @@ platforms/
     ua-order-service.js      — API-виклики (cart/add, departments, checkout/add), адаптовано з console-скрипта
     ua-oneclick-products.js  — товари для "1 клік" (за URL сторінки)
     ua-oneclick-service.js   — API-виклик one-click-order/, реверс-інжинирений з живого запиту
-  pl/                      — (TODO) аналогічна структура для PL
+  pl/
+    pl-config.js          — delivery/payment методи + матриця сумісності, знята з живого API
+    pl-products.js         — SEARCH_TERMS (пошукові запити, не фіксовані товари) + PRODUCTS-обгортка
+    pl-order-service.js    — пошук товару (fulltext → категорія → product-index) + checkout, аналог ua-order-service.js
 ```
 
 `ua-config.js` завантажується двічі — і в popup (для рендеру чекбоксів), і в
@@ -174,13 +180,68 @@ id — бо `product_id` у цьому флоу не збігається з `pr
 валідних комбінацій було обрано. Товари з `ua-products.js` також підставляються
 циклічно.
 
+## PL — пошук товару замість фіксованого каталогу
+
+На відміну від UA, у PL немає списку перевірених товарів — кожен сценарій
+використовує один із термінів пошуку з `platforms/pl/pl-products.js`
+(`SEARCH_TERMS`, перенесено з оригінального PL-скрипта), який резолвиться в
+реальний товар **під час виконання** сценарію (`pl-order-service.js`), тим самим
+шляхом, яким користується пошук у шапці сайту:
+
+```
+GET /api/v1/fulltext/search-v2/?query=<термін>&short=true   → перша категорія
+GET /api/v1/catalogue/product-index/?slug=<категорія>       → перший товар в наявності
+POST /api/v1/cart/add/                                       → та сама форма payload, що й UA
+POST /api/v1/cart/checkout/add/                               → створення замовлення
+GET  /api/v1/cart/checkout/success/                            → ЄДИНЕ місце, де є номер замовлення
+```
+
+`checkout/add` повертає лише спорожнений кошик, без номера замовлення — номер
+з'являється тільки у відповіді `checkout/success/` (перевірено наживо,
+`orders[0].orders_data[0].order_id`). `pl-order-service.js` завжди робить цей
+другий виклик.
+
+## PL delivery/payment коди
+
+Код + матриця сумісності **не вигадані**, а зняті напряму з живого API:
+`GET /api/v1/cart/checkout/?delivery=<slug>&office_id=<id>` повертає точний
+список `payments`, валідних для конкретної доставки. Перевірено на
+`stagingpl.exist.ua`:
+
+| delivery slug | UI назва | доступні payment id |
+|---|---|---|
+| `office` | Самовывоз из автомагазина | 6, 182 |
+| `exist_paid_courier` | Курьер, оплата при получении | 5 |
+| `inpost_paczkomat` | Курьер, оплаченный заказ | 182 |
+| `dhl_courier` | DHL доставка в Германию | 115 |
+| `dhl_international` | По Европе DHL или DPD | 215, 39, 182, 115 |
+| `fedex` | Международная доставка за пределы ЕС | 215, 115 |
+| `nova_post_global_address` | Курьер Nova Post | 39, 182 |
+
+Payment id: `5`/`6` — оплата при отриманні (готівка), `39` — картка, `115` —
+PayPal, `182` — баланс, `215` — PayPal Expanded.
+
+**Свідомо не реалізовано** (2 з 9 UI-варіантів доставки): `apaczka` (Почтомат
+або Пункт видачі) та `nova_post_global` (В отделение или почтомат Nova Post).
+Обидва вимагають вибору конкретного локера/точки видачі через окремий API
+пошуку точок — без `delivery_service_id` бекенд повертає `500
+KeyError('delivery_service_id')`. Решта 7 доставок підтверджено працюють з
+простою inline-адресою (`platforms/pl/pl-config.js` → `CONFIG.ADDRESS_TEXT`),
+так само як UA використовує один фіксований `ADDRESS_TEXT` для кур'єра. Щоб
+додати ці два способи — потрібно знайти PL-аналог UA
+`/api/v1/address/departments/` для точок видачі і підставити реальний
+`delivery_service_id`.
+
+`contact_id` у payload PL **не обов'язковий** — достатньо
+`contact_phone`/`contact_full_name`/`contact_email` (перевірено: замовлення
+успішно створюється і без нього), тому окремого кроку "створити отримувача"
+перед checkout не потрібно.
+
 ## Наступні кроки (не реалізовано в цій версії)
 
-- **Phase 3 — PL**: `platforms/pl/pl-config.js`, `pl-products.js`,
-  `pl-order-service.js` за аналогією з UA (пошук товару, категорія, checkout,
-  random payment із доступних). Після появи адаптера додати відповідні файли в
-  `injectEngine()` (`popup/popup.js`) і перевірити реальний PL-домен у
-  `core/site-config.js`.
-- Перевірити/доповнити реальні домени UA/PL у `core/site-config.js`
-  (`SITE_HOSTNAMES`) — там зараз лише `staging.exist.ua`/`exist.ua` та аналоги
-  для `.pl`.
+- **PL "1 клік"** — не було в оригінальних вимогах для PL; якщо знадобиться,
+  дивитись, чи є на сторінці товару PL аналог UA-кнопки "Заказать в 1 клік".
+- **PL apaczka / nova_post_global** — додати lookup точок видачі (див. вище).
+- Перевірити production-домен PL у `core/site-config.js` — підтверджено лише
+  `stagingpl.exist.ua`; `2407.pl`/`www.2407.pl` там — здогадка за брендингом
+  сайту, не перевірено наживо.
