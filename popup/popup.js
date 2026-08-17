@@ -187,7 +187,7 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
 
   // Garage / "запит на підбір" is UA-only business logic (see ua-garage-*.js) — same
   // gating pattern as "1 клік" above.
-  const hasGarage = !!meta.GARAGE_TEST_CAR;
+  const hasGarage = !!(meta.GARAGE_TEST_CARS && meta.GARAGE_TEST_CARS.length);
   $('#garageSection').classList.toggle('hidden', !hasGarage);
   if (!hasGarage) {
     $('#garageNewCarEnabled').checked = false;
@@ -276,7 +276,7 @@ async function fetchGarageListForTab(tabId) {
 
 async function refreshGarageList() {
   const meta = getAdapterMeta(state.platform);
-  if (!meta || !meta.GARAGE_TEST_CAR || !state.tabId) {
+  if (!meta || !meta.GARAGE_TEST_CARS || !state.tabId) {
     state.garageList = [];
     return;
   }

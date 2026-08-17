@@ -68,7 +68,8 @@
 
   async function createGarageCar(session) {
     const ids = sessionIds(session);
-    const car = self.SmokeUA.GARAGE_TEST_CAR;
+    const pool = self.SmokeUA.GARAGE_TEST_CARS;
+    const car = pool[Math.floor(Math.random() * pool.length)];
     return api('/api/v1/customer/create-garage/', 'POST', {
       is_main: false,
       vin: null,
