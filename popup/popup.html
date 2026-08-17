@@ -37,8 +37,13 @@
         </div>
         <div class="field field-count">
           <label class="field-label" for="count">Замовлень</label>
-          <input type="number" id="count" value="10" min="0" max="100" />
+          <input type="number" id="count" value="1" min="1" max="15" />
         </div>
+      </section>
+
+      <section class="field">
+        <label class="field-label" for="officeId">Магазин самовивозу</label>
+        <select id="officeId"></select>
       </section>
 
       <section class="field">
@@ -66,12 +71,33 @@
       <section id="oneClickSection" class="field">
         <label class="check-item oneclick-toggle">
           <input type="checkbox" id="oneClickEnabled" />
-          <span>🖱 Додати "Замовлення в 1 клік" (без вибору доставки/оплати)</span>
+          <span>🖱 Додати "Замовлення в 1 клік"</span>
         </label>
         <div id="oneClickCountRow" class="field field-inline hidden">
           <label class="field-label" for="oneClickCount">К-сть (по 60с кожна — ліміт сайту)</label>
           <input type="number" id="oneClickCount" value="1" min="1" max="20" />
         </div>
+      </section>
+
+      <section id="garageSection" class="field hidden">
+        <label class="check-item">
+          <input type="checkbox" id="garageNewCarEnabled" />
+          <span>🚗 Запит на підбір з додаванням авто в гараж</span>
+        </label>
+        <div id="garageNewCarCountRow" class="field field-inline hidden">
+          <label class="field-label" for="garageNewCarCount">К-сть</label>
+          <input type="number" id="garageNewCarCount" value="1" min="1" max="15" />
+        </div>
+
+        <label class="check-item">
+          <input type="checkbox" id="garageExistingCarEnabled" />
+          <span>🚗 Запит на підбір з авто, що вже є в гаражі</span>
+        </label>
+        <div id="garageExistingCarCountRow" class="field field-inline hidden">
+          <label class="field-label" for="garageExistingCarCount">К-сть</label>
+          <input type="number" id="garageExistingCarCount" value="1" min="1" max="15" />
+        </div>
+        <div id="garageEmptyHint" class="hint hidden">⚠️ Гараж порожній — цей запит недоступний</div>
       </section>
 
       <section id="preRunSummary" class="pre-run-summary hidden"></section>
@@ -105,6 +131,7 @@
   </div>
 
   <footer class="actions" id="footer">
+    <div id="runBlockedHint" class="run-blocked-hint hidden"></div>
     <div id="footerRun" class="footer-group">
       <button id="runBtn" class="btn-primary">🚀 Запустити Smoke Test</button>
       <button id="stopBtn" class="btn-secondary" disabled>⏹ Stop</button>
@@ -127,9 +154,11 @@
 
   <script src="../platforms/ua/ua-config.js"></script>
   <script src="../platforms/ua/ua-oneclick-products.js"></script>
+  <script src="../platforms/ua/ua-garage-config.js"></script>
   <script src="../platforms/pl/pl-config.js"></script>
   <script src="../core/site-config.js"></script>
   <script src="../core/logger.js"></script>
+  <script src="../core/phone-validator.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

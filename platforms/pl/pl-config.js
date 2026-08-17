@@ -53,8 +53,12 @@
   }
 
   self.SmokePL = self.SmokePL || {};
-  self.SmokePL.CONFIG = { OFFICE_ID, ADDRESS_TEXT, CONTACT_FULL_NAME, CONTACT_EMAIL };
+  self.SmokePL.CONFIG = { OFFICE_ID, ADDRESS_TEXT, CONTACT_FULL_NAME, CONTACT_EMAIL, DEFAULT_OFFICE_ID: OFFICE_ID };
   self.SmokePL.DELIVERY_METHODS = DELIVERY_METHODS;
   self.SmokePL.PAYMENT_METHODS = PAYMENT_METHODS;
   self.SmokePL.isCombinationAllowed = isCombinationAllowed;
+  // Default checkbox selection on first load (no saved settings yet) — office/cash
+  // is the only cash-like combo valid for самовивіз on PL (see DELIVERY_PAYMENTS.office).
+  self.SmokePL.DEFAULT_DELIVERY_IDS = ['office'];
+  self.SmokePL.DEFAULT_PAYMENT_IDS = [6];
 })();

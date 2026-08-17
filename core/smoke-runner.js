@@ -39,7 +39,7 @@
     return product ? product.trademark + ' ' + product.ware_num : '';
   }
 
-  async function runCartScenario(adapter, scenario, phone, index, total) {
+  async function runCartScenario(adapter, scenario, phone, index, total, officeId) {
     const deliveryLabel = labelOf(adapter.DELIVERY_METHODS, scenario.delivery);
     const paymentLabel = labelOf(adapter.PAYMENT_METHODS, scenario.payment);
 
@@ -57,7 +57,7 @@
     }
 
     try {
-      const outcome = await adapter.runScenario(scenario, phone, (level, text) => send('SMOKE_LOG', { level, text }));
+      const outcome = await adapter.runScenario(scenario, phone, (level, text) => send('SMOKE_LOG', { level, text }), officeId);
       if (outcome.ok) {
         pushResult({ index, status: 'passed', deliveryLabel, paymentLabel, orderId: outcome.orderId, raw: outcome.raw });
       } else {
@@ -111,6 +111,21 @@
     }
   }
 
+  async function runGarageScenario(adapter, scenarioFn, label, index, total) {
+    send('SMOKE_ORDER_START', { index, total, deliveryLabel: label, paymentLabel: '—', productLabel: '' });
+
+    try {
+      const outcome = await scenarioFn.call(adapter, (level, text) => send('SMOKE_LOG', { level, text }));
+      if (outcome.ok) {
+        pushResult({ index, status: 'passed', deliveryLabel: label, paymentLabel: '—', orderId: outcome.orderId, raw: outcome.raw });
+      } else {
+        pushResult({ index, status: 'failed', deliveryLabel: label, paymentLabel: '—', error: outcome.error, raw: outcome.raw });
+      }
+    } catch (e) {
+      pushResult({ index, status: 'failed', deliveryLabel: label, paymentLabel: '—', error: String((e && e.message) || e) });
+    }
+  }
+
   async function runSmokeTest(config) {
     if (self.__smokeRunning) {
       send('SMOKE_FATAL', { error: 'Smoke test вже виконується на цій вкладці' });
@@ -119,7 +134,7 @@
 
     stopRequested = false;
     self.__smokeRunning = true;
-    const { platform, phone, count, deliveries, payments, oneClickCount } = config;
+    const { platform, phone, count, deliveries, payments, oneClickCount, officeId, garageNewCarCount, garageExistingCarCount } = config;
 
     const adapter = platform === 'UA' ? self.SmokeUA : self.SmokePL;
     if (!adapter) {
@@ -142,7 +157,12 @@
     const oneClickEnabled = oneClickCount > 0 && adapter.ONECLICK_PRODUCTS && adapter.ONECLICK_PRODUCTS.length > 0;
     const oneClickTotal = oneClickEnabled ? oneClickCount : 0;
 
-    const total = scenarios.length + oneClickTotal;
+    const garageNewCarEnabled = garageNewCarCount > 0 && !!adapter.runNewCarGarageScenario;
+    const garageNewCarTotal = garageNewCarEnabled ? garageNewCarCount : 0;
+    const garageExistingCarEnabled = garageExistingCarCount > 0 && !!adapter.runExistingCarGarageScenario;
+    const garageExistingCarTotal = garageExistingCarEnabled ? garageExistingCarCount : 0;
+
+    const total = scenarios.length + oneClickTotal + garageNewCarTotal + garageExistingCarTotal;
     if (!total) {
       send('SMOKE_FATAL', { error: 'Не вдалося сформувати жодного сценарію — перевірте вибір доставки/оплати/кількості' });
       self.__smokeRunning = false;
@@ -160,13 +180,13 @@
         break;
       }
       index++;
-      await runCartScenario(adapter, scenario, phone, index, total);
+      await runCartScenario(adapter, scenario, phone, index, total, officeId);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     if (oneClickEnabled && !stopRequested) {
       const products = adapter.ONECLICK_PRODUCTS;
-      const officeId = adapter.CONFIG.OFFICE_ID_PICKUP;
+      const resolvedOfficeId = officeId || adapter.CONFIG.OFFICE_ID_PICKUP;
       for (let i = 0; i < oneClickCount; i++) {
         if (stopRequested) {
           self.__smokeState.stopped = true;
@@ -175,11 +195,35 @@
         }
         index++;
         const product = products[i % products.length];
-        await runOneClickScenario(adapter, product, phone, officeId, index, total);
+        await runOneClickScenario(adapter, product, phone, resolvedOfficeId, index, total);
         if (i < oneClickCount - 1 && !stopRequested) {
           send('SMOKE_LOG', { level: 'warn', text: 'Очікування 60с (ліміт "1 клік" — 1 заявка/хв на телефон)...' });
           await new Promise((resolve) => setTimeout(resolve, adapter.ONECLICK_THROTTLE_MS || 61000));
         }
+      }
+    }
+
+    if (garageNewCarEnabled && !stopRequested) {
+      for (let i = 0; i < garageNewCarTotal; i++) {
+        if (stopRequested) {
+          self.__smokeState.stopped = true;
+          send('SMOKE_LOG', { level: 'warn', text: 'Зупинено користувачем' });
+          break;
+        }
+        index++;
+        await runGarageScenario(adapter, adapter.runNewCarGarageScenario, 'Підбір (нове авто)', index, total);
+      }
+    }
+
+    if (garageExistingCarEnabled && !stopRequested) {
+      for (let i = 0; i < garageExistingCarTotal; i++) {
+        if (stopRequested) {
+          self.__smokeState.stopped = true;
+          send('SMOKE_LOG', { level: 'warn', text: 'Зупинено користувачем' });
+          break;
+        }
+        index++;
+        await runGarageScenario(adapter, adapter.runExistingCarGarageScenario, 'Підбір (з гаража)', index, total);
       }
     }
 

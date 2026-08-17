@@ -81,13 +81,13 @@
     });
   }
 
-  async function submitOrder(cfg, phone) {
+  async function submitOrder(cfg, phone, officeId) {
     const CONFIG = self.SmokePL.CONFIG;
     const body = {
       delivery: cfg.delivery,
       deliveryDescription: cfg.deliveryDescription,
       payment: cfg.payment,
-      office_id: CONFIG.OFFICE_ID,
+      office_id: officeId || CONFIG.OFFICE_ID,
       contact_phone: phone,
       contact_full_name: CONFIG.CONTACT_FULL_NAME,
       contact_email: CONFIG.CONTACT_EMAIL,
@@ -110,7 +110,7 @@
     return first ? { orderId: first.order_id, raw: first } : { orderId: null, raw: data };
   }
 
-  async function runScenario(scenario, phone, log) {
+  async function runScenario(scenario, phone, log, officeId) {
     log('step', 'Searching product ("' + scenario.product.searchTerm + '")...');
     await clearCart();
     const resolved = await resolveProduct(scenario.product.searchTerm);
@@ -130,7 +130,8 @@
     log('step', 'Creating order...');
     const result = await submitOrder(
       { delivery: scenario.delivery, deliveryDescription: (deliveryLabel && deliveryLabel.label) || scenario.delivery, payment: scenario.payment },
-      phone
+      phone,
+      officeId
     );
     if (result.status !== 200 && result.status !== 201) {
       return { ok: false, error: 'HTTP ' + result.status + ' (checkout/add)', raw: result.data };

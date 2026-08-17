@@ -2,7 +2,22 @@ const $ = (sel) => document.querySelector(sel);
 
 const STORAGE_KEY = 'smokeSettings';
 // Never store credentials/session data — only QA's own form choices.
-const STORAGE_FIELDS = ['platform', 'phone', 'count', 'deliveries', 'payments', 'oneClickEnabled', 'oneClickCount'];
+const STORAGE_FIELDS = [
+  'platform',
+  'phone',
+  'count',
+  'deliveries',
+  'payments',
+  'oneClickEnabled',
+  'oneClickCount',
+  'officeId',
+  'garageNewCarEnabled',
+  'garageNewCarCount',
+  'garageExistingCarEnabled',
+  'garageExistingCarCount',
+];
+const MIN_COUNT = 1;
+const MAX_COUNT = 15;
 
 const state = {
   platform: 'UA',
@@ -18,6 +33,8 @@ const state = {
   listener: null,
   environment: null,
   lastConfig: null,
+  officesList: [],
+  garageList: [],
 };
 
 function getAdapterMeta(platform) {
@@ -29,6 +46,16 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+
+// Strict non-negative integer parse: rejects "3.5", "-5", "", "abc" instead of
+// silently coercing them (parseInt would happily turn "3.5" into 3).
+function parseStrictInt(raw, min, max) {
+  const str = String(raw == null ? '' : raw).trim();
+  if (!/^\d+$/.test(str)) return null;
+  const n = parseInt(str, 10);
+  if (n < min || n > max) return null;
+  return n;
 }
 
 // ============================================================
@@ -54,6 +81,11 @@ function saveSettings() {
     payments: getSelected('payment'),
     oneClickEnabled: $('#oneClickEnabled').checked,
     oneClickCount: $('#oneClickCount').value,
+    officeId: $('#officeId').value,
+    garageNewCarEnabled: $('#garageNewCarEnabled').checked,
+    garageNewCarCount: $('#garageNewCarCount').value,
+    garageExistingCarEnabled: $('#garageExistingCarEnabled').checked,
+    garageExistingCarCount: $('#garageExistingCarCount').value,
   };
   try {
     chrome.storage.local.set({ [STORAGE_KEY]: settings });
@@ -121,7 +153,7 @@ function renderCheckboxes(container, items, groupName, checkedIds) {
     input.type = 'checkbox';
     input.dataset.group = groupName;
     input.value = String(item.id);
-    input.checked = checkedIds ? checkedIds.includes(item.id) : true;
+    input.checked = checkedIds.includes(item.id);
     wrap.appendChild(input);
     wrap.appendChild(el('span', null, item.label));
     container.appendChild(wrap);
@@ -136,8 +168,13 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
     $('#oneClickSection').classList.add('hidden');
     return;
   }
-  renderCheckboxes($('#deliveryList'), meta.DELIVERY_METHODS, 'delivery', savedDeliveries);
-  renderCheckboxes($('#paymentList'), meta.PAYMENT_METHODS, 'payment', savedPayments);
+  // On first-ever load (no saved settings) default to the lightest valid combo
+  // (office/cash) rather than checking every box — a fresh install shouldn't run
+  // the full delivery x payment matrix by surprise.
+  const defaultDeliveries = savedDeliveries || meta.DEFAULT_DELIVERY_IDS || [];
+  const defaultPayments = savedPayments || meta.DEFAULT_PAYMENT_IDS || [];
+  renderCheckboxes($('#deliveryList'), meta.DELIVERY_METHODS, 'delivery', defaultDeliveries);
+  renderCheckboxes($('#paymentList'), meta.PAYMENT_METHODS, 'payment', defaultPayments);
 
   // "1 клік" is UA-only business logic — only show the toggle when the adapter
   // actually implements it (see platforms/ua/ua-oneclick-*.js).
@@ -147,6 +184,111 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
     $('#oneClickEnabled').checked = false;
     $('#oneClickCountRow').classList.add('hidden');
   }
+
+  // Garage / "запит на підбір" is UA-only business logic (see ua-garage-*.js) — same
+  // gating pattern as "1 клік" above.
+  const hasGarage = !!(meta.GARAGE_TEST_CARS && meta.GARAGE_TEST_CARS.length);
+  $('#garageSection').classList.toggle('hidden', !hasGarage);
+  if (!hasGarage) {
+    $('#garageNewCarEnabled').checked = false;
+    $('#garageNewCarCountRow').classList.add('hidden');
+    $('#garageExistingCarEnabled').checked = false;
+    $('#garageExistingCarCountRow').classList.add('hidden');
+  }
+}
+
+// ============================================================
+// Pickup office selection (GET /api/v1/offices/, same shape on UA & PL)
+// ============================================================
+
+async function fetchOfficesForTab(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        try {
+          const res = await fetch('/api/v1/offices/', { credentials: 'same-origin' });
+          if (!res.ok) return { ok: false, status: res.status };
+          const data = await res.json();
+          const list = (Array.isArray(data) ? data : [])
+            .filter((o) => !o.disable_pickup)
+            .map((o) => ({ id: o.id, label: (o.city || '') + ' — ' + (o.name || o.address || ('#' + o.id)) }));
+          return { ok: true, list };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+    });
+    return result && result.ok ? result.list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderOfficeSelect(list, savedOfficeId) {
+  const select = $('#officeId');
+  const meta = getAdapterMeta(state.platform);
+  const defaultId = meta && meta.CONFIG ? meta.CONFIG.DEFAULT_OFFICE_ID : null;
+
+  select.innerHTML = '';
+  const options = list.length ? list : defaultId ? [{ id: defaultId, label: 'Магазин #' + defaultId + ' (за замовчуванням)' }] : [];
+  for (const office of options) {
+    const opt = document.createElement('option');
+    opt.value = String(office.id);
+    opt.textContent = office.label;
+    select.appendChild(opt);
+  }
+
+  const preferredId = [savedOfficeId, defaultId].find((id) => id != null && options.some((o) => String(o.id) === String(id)));
+  if (preferredId != null) select.value = String(preferredId);
+}
+
+async function refreshOfficeList(savedOfficeId) {
+  state.officesList = state.tabId ? await fetchOfficesForTab(state.tabId) : [];
+  renderOfficeSelect(state.officesList, savedOfficeId);
+}
+
+// ============================================================
+// Garage list (GET /api/v1/customer/get-garage/, UA only) — needed to know whether
+// "запит на підбір з авто, що вже є в гаражі" is even possible before a run starts.
+// ============================================================
+
+async function fetchGarageListForTab(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        try {
+          const res = await fetch('/api/v1/customer/get-garage/', { credentials: 'same-origin' });
+          if (!res.ok) return { ok: false, status: res.status };
+          const data = await res.json();
+          return { ok: true, count: Array.isArray(data) ? data.length : 0 };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+    });
+    return result && result.ok ? result.count : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function refreshGarageList() {
+  const meta = getAdapterMeta(state.platform);
+  if (!meta || !meta.GARAGE_TEST_CARS || !state.tabId) {
+    state.garageList = [];
+    return;
+  }
+  const count = await fetchGarageListForTab(state.tabId);
+  state.garageList = new Array(count).fill(null);
+  const empty = count === 0;
+  $('#garageExistingCarEnabled').disabled = empty;
+  if (empty) {
+    $('#garageExistingCarEnabled').checked = false;
+    $('#garageExistingCarCountRow').classList.add('hidden');
+  }
+  $('#garageEmptyHint').classList.toggle('hidden', !empty);
 }
 
 function getSelected(groupName) {
@@ -157,10 +299,12 @@ function getSelected(groupName) {
 }
 
 document.querySelectorAll('input[name="platform"]').forEach((radio) => {
-  radio.addEventListener('change', (e) => {
+  radio.addEventListener('change', async (e) => {
     state.platform = e.target.value;
     renderPlatformOptions();
+    renderOfficeSelect(state.officesList, $('#officeId').value);
     renderConnectionBar();
+    await refreshGarageList();
     refreshValidation();
   });
 });
@@ -181,10 +325,23 @@ $('#oneClickEnabled').addEventListener('change', (e) => {
   refreshValidation();
 });
 
+$('#garageNewCarEnabled').addEventListener('change', (e) => {
+  $('#garageNewCarCountRow').classList.toggle('hidden', !e.target.checked);
+  refreshValidation();
+});
+
+$('#garageExistingCarEnabled').addEventListener('change', (e) => {
+  $('#garageExistingCarCountRow').classList.toggle('hidden', !e.target.checked);
+  refreshValidation();
+});
+
 ['input', 'change'].forEach((evt) => {
   $('#phone').addEventListener(evt, refreshValidation);
   $('#count').addEventListener(evt, refreshValidation);
   $('#oneClickCount').addEventListener(evt, refreshValidation);
+  $('#officeId').addEventListener(evt, refreshValidation);
+  $('#garageNewCarCount').addEventListener(evt, refreshValidation);
+  $('#garageExistingCarCount').addEventListener(evt, refreshValidation);
   $('#deliveryList').addEventListener(evt, refreshValidation);
   $('#paymentList').addEventListener(evt, refreshValidation);
 });
@@ -208,9 +365,9 @@ function updatePreRunSummary() {
   const meta = getAdapterMeta(state.platform);
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
-  const count = parseInt($('#count').value, 10) || 0;
+  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
+  const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
 
   if (!meta || (!deliveries.length && !oneClickCount)) {
     box.classList.add('hidden');
@@ -235,9 +392,16 @@ function updatePreRunSummary() {
       );
     }
   }
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
+
   const totalLine = [];
   if (count > 0) totalLine.push(`${count} замовлень (кошик)`);
   if (oneClickCount > 0) totalLine.push(`${oneClickCount} замовлень "в 1 клік"`);
+  if (garageNewCarCount > 0) totalLine.push(`${garageNewCarCount} запитів на підбір (нове авто)`);
+  if (garageExistingCarCount > 0) totalLine.push(`${garageExistingCarCount} запитів на підбір (з гаража)`);
   box.appendChild(el('div', 'prs-total', `Буде створено: ${totalLine.join(' + ') || '0'}`));
   box.classList.remove('hidden');
 }
@@ -254,26 +418,57 @@ function canRun() {
 
   const phone = $('#phone').value.trim();
   if (!phone) return { ok: false, reason: 'Вкажіть номер телефону.' };
+  if (!window.SmokePhoneValidator || !window.SmokePhoneValidator.isValidPhone(phone, state.platform)) {
+    const hint = state.platform === 'PL' ? '+48XXXXXXXXX або +380XXXXXXXXX' : '+380XXXXXXXXX';
+    return { ok: false, reason: `Невірний формат телефону (${state.platform}). Очікується: ${hint}.` };
+  }
 
-  const count = parseInt($('#count').value, 10) || 0;
+  const rawCount = $('#count').value;
+  const count = parseStrictInt(rawCount, MIN_COUNT, MAX_COUNT);
+  if (count === null) {
+    return { ok: false, reason: `Кількість замовлень має бути цілим числом від ${MIN_COUNT} до ${MAX_COUNT}.` };
+  }
+
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
-
-  const cartRequested = count > 0;
-  if (cartRequested && (!deliveries.length || !payments.length)) {
-    return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати (або встановіть кількість 0).' };
-  }
-  if (cartRequested) {
-    const meta = getAdapterMeta(state.platform);
-    const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
-    if (stats.validCombos === 0) {
-      return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
+  let oneClickCount = 0;
+  if (oneClickEnabled) {
+    oneClickCount = parseStrictInt($('#oneClickCount').value, 1, 20);
+    if (oneClickCount === null) {
+      return { ok: false, reason: 'Кількість "1 клік" замовлень має бути цілим числом від 1 до 20.' };
     }
   }
-  if (!cartRequested && !oneClickCount) {
-    return { ok: false, reason: 'Вкажіть кількість замовлень або увімкніть "Замовлення в 1 клік".' };
+
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  let garageNewCarCount = 0;
+  if (garageNewCarEnabled) {
+    garageNewCarCount = parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT);
+    if (garageNewCarCount === null) {
+      return { ok: false, reason: `Кількість запитів на підбір (нове авто) має бути цілим числом від 1 до ${MAX_COUNT}.` };
+    }
+  }
+
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  let garageExistingCarCount = 0;
+  if (garageExistingCarEnabled) {
+    if (!state.garageList.length) {
+      return { ok: false, reason: 'Гараж порожній — запит на підбір з авто з гаража недоступний.' };
+    }
+    garageExistingCarCount = parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT);
+    if (garageExistingCarCount === null) {
+      return { ok: false, reason: `Кількість запитів на підбір (з гаража) має бути цілим числом від 1 до ${MAX_COUNT}.` };
+    }
+  }
+
+  if (!deliveries.length || !payments.length) {
+    return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати.' };
+  }
+
+  const meta = getAdapterMeta(state.platform);
+  const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
+  if (stats.validCombos === 0) {
+    return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
   }
   return { ok: true };
 }
@@ -283,6 +478,9 @@ function refreshValidation() {
   updatePreRunSummary();
   const check = canRun();
   $('#runBtn').disabled = !check.ok;
+  $('#runBtn').title = check.ok ? '' : check.reason;
+  $('#runBlockedHint').textContent = check.ok ? '' : '⚠️ ' + check.reason;
+  $('#runBlockedHint').classList.toggle('hidden', check.ok);
   saveSettings();
 }
 
@@ -319,6 +517,8 @@ async function injectEngine(tabId, platform) {
           'platforms/ua/ua-order-service.js',
           'platforms/ua/ua-oneclick-products.js',
           'platforms/ua/ua-oneclick-service.js',
+          'platforms/ua/ua-garage-config.js',
+          'platforms/ua/ua-garage-service.js',
         ]
       : ['platforms/pl/pl-config.js', 'platforms/pl/pl-products.js', 'platforms/pl/pl-order-service.js'];
 
@@ -349,16 +549,21 @@ $('#runBtn').addEventListener('click', () => {
   if (!check.ok) return alert(check.reason);
 
   const phone = $('#phone').value.trim();
-  const count = parseInt($('#count').value, 10) || 0;
+  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
-  const cartRequested = count > 0;
+  const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
+  const officeId = parseInt($('#officeId').value, 10) || null;
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
 
-  const parts = [];
-  if (cartRequested) parts.push(`Замовлень: ${count}`);
+  const parts = [`Замовлень: ${count}`];
   if (oneClickCount) parts.push(`"1 клік": ${oneClickCount} (~${oneClickCount} хв через ліміт сайту)`);
+  if (garageNewCarCount) parts.push(`Запит на підбір (нове авто): ${garageNewCarCount}`);
+  if (garageExistingCarCount) parts.push(`Запит на підбір (з гаража): ${garageExistingCarCount}`);
 
   $('#confirmText').textContent =
     `🚗 Запуск Smoke Test\n\n` +
@@ -369,7 +574,7 @@ $('#runBtn').addEventListener('click', () => {
   $('#confirmOverlay').classList.remove('hidden');
   $('#confirmYes').onclick = () => {
     $('#confirmOverlay').classList.add('hidden');
-    startRun({ phone, count: cartRequested ? count : 0, deliveries, payments, oneClickCount });
+    startRun({ phone, count, deliveries, payments, oneClickCount, officeId, garageNewCarCount, garageExistingCarCount });
   };
   $('#confirmNo').onclick = () => $('#confirmOverlay').classList.add('hidden');
 });
@@ -577,7 +782,11 @@ async function startRun(config) {
 
   state.lastConfig = config;
   state.startTime = Date.now();
-  enterRunningView(config.count + config.oneClickCount, state.platform, state.siteHostname);
+  enterRunningView(
+    config.count + config.oneClickCount + config.garageNewCarCount + config.garageExistingCarCount,
+    state.platform,
+    state.siteHostname
+  );
 
   state.listener = (msg) => handleRunnerMessage(msg);
   chrome.runtime.onMessage.addListener(state.listener);
@@ -662,8 +871,10 @@ function resetToInitial() {
 
   $('#headerStatus').classList.add('hidden');
 
-  detectSite().then(() => {
+  detectSite().then(async () => {
     renderConnectionBar();
+    await refreshOfficeList($('#officeId').value);
+    await refreshGarageList();
     refreshValidation();
   });
 }
@@ -721,6 +932,7 @@ async function init() {
   // change) must never leave the popup showing empty delivery/payment lists.
   document.querySelector(`input[name="platform"][value="${state.platform}"]`).checked = true;
   renderPlatformOptions();
+  renderOfficeSelect([], null);
   renderConnectionBar();
   refreshValidation();
 
@@ -742,6 +954,21 @@ async function init() {
     }
     if (saved.oneClickCount != null) $('#oneClickCount').value = saved.oneClickCount;
 
+    if (saved.garageNewCarEnabled) {
+      $('#garageNewCarEnabled').checked = true;
+      $('#garageNewCarCountRow').classList.remove('hidden');
+    }
+    if (saved.garageNewCarCount != null) $('#garageNewCarCount').value = saved.garageNewCarCount;
+    if (saved.garageExistingCarCount != null) $('#garageExistingCarCount').value = saved.garageExistingCarCount;
+
+    await refreshOfficeList(saved.officeId);
+    await refreshGarageList();
+    // garageExistingCarEnabled restoration happens after refreshGarageList so an empty
+    // garage (disabled checkbox) can't be silently re-checked from stale storage.
+    if (saved.garageExistingCarEnabled && !$('#garageExistingCarEnabled').disabled) {
+      $('#garageExistingCarEnabled').checked = true;
+      $('#garageExistingCarCountRow').classList.remove('hidden');
+    }
     refreshValidation();
   } catch (e) {
     console.warn('Не вдалося відновити збережені налаштування:', e);
