@@ -520,7 +520,13 @@ async function injectEngine(tabId, platform) {
           'platforms/ua/ua-garage-config.js',
           'platforms/ua/ua-garage-service.js',
         ]
-      : ['platforms/pl/pl-config.js', 'platforms/pl/pl-products.js', 'platforms/pl/pl-order-service.js'];
+      : [
+          'platforms/pl/pl-config.js',
+          'platforms/pl/pl-products.js',
+          'platforms/pl/pl-order-service.js',
+          'platforms/pl/pl-garage-config.js',
+          'platforms/pl/pl-garage-service.js',
+        ];
 
   await chrome.scripting.executeScript({
     target: { tabId },
