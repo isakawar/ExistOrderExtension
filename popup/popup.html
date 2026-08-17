@@ -79,6 +79,27 @@
         </div>
       </section>
 
+      <section id="garageSection" class="field hidden">
+        <label class="check-item">
+          <input type="checkbox" id="garageNewCarEnabled" />
+          <span>🚗 Запит на підбір з додаванням авто в гараж</span>
+        </label>
+        <div id="garageNewCarCountRow" class="field field-inline hidden">
+          <label class="field-label" for="garageNewCarCount">К-сть</label>
+          <input type="number" id="garageNewCarCount" value="1" min="1" max="15" />
+        </div>
+
+        <label class="check-item">
+          <input type="checkbox" id="garageExistingCarEnabled" />
+          <span>🚗 Запит на підбір з авто, що вже є в гаражі</span>
+        </label>
+        <div id="garageExistingCarCountRow" class="field field-inline hidden">
+          <label class="field-label" for="garageExistingCarCount">К-сть</label>
+          <input type="number" id="garageExistingCarCount" value="1" min="1" max="15" />
+        </div>
+        <div id="garageEmptyHint" class="hint hidden">⚠️ Гараж порожній — цей запит недоступний</div>
+      </section>
+
       <section id="preRunSummary" class="pre-run-summary hidden"></section>
     </div>
 
@@ -133,6 +154,7 @@
 
   <script src="../platforms/ua/ua-config.js"></script>
   <script src="../platforms/ua/ua-oneclick-products.js"></script>
+  <script src="../platforms/ua/ua-garage-config.js"></script>
   <script src="../platforms/pl/pl-config.js"></script>
   <script src="../core/site-config.js"></script>
   <script src="../core/logger.js"></script>

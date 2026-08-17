@@ -2,7 +2,20 @@ const $ = (sel) => document.querySelector(sel);
 
 const STORAGE_KEY = 'smokeSettings';
 // Never store credentials/session data — only QA's own form choices.
-const STORAGE_FIELDS = ['platform', 'phone', 'count', 'deliveries', 'payments', 'oneClickEnabled', 'oneClickCount', 'officeId'];
+const STORAGE_FIELDS = [
+  'platform',
+  'phone',
+  'count',
+  'deliveries',
+  'payments',
+  'oneClickEnabled',
+  'oneClickCount',
+  'officeId',
+  'garageNewCarEnabled',
+  'garageNewCarCount',
+  'garageExistingCarEnabled',
+  'garageExistingCarCount',
+];
 const MIN_COUNT = 1;
 const MAX_COUNT = 15;
 
@@ -21,6 +34,7 @@ const state = {
   environment: null,
   lastConfig: null,
   officesList: [],
+  garageList: [],
 };
 
 function getAdapterMeta(platform) {
@@ -68,6 +82,10 @@ function saveSettings() {
     oneClickEnabled: $('#oneClickEnabled').checked,
     oneClickCount: $('#oneClickCount').value,
     officeId: $('#officeId').value,
+    garageNewCarEnabled: $('#garageNewCarEnabled').checked,
+    garageNewCarCount: $('#garageNewCarCount').value,
+    garageExistingCarEnabled: $('#garageExistingCarEnabled').checked,
+    garageExistingCarCount: $('#garageExistingCarCount').value,
   };
   try {
     chrome.storage.local.set({ [STORAGE_KEY]: settings });
@@ -161,6 +179,17 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
     $('#oneClickEnabled').checked = false;
     $('#oneClickCountRow').classList.add('hidden');
   }
+
+  // Garage / "запит на підбір" is UA-only business logic (see ua-garage-*.js) — same
+  // gating pattern as "1 клік" above.
+  const hasGarage = !!meta.GARAGE_TEST_CAR;
+  $('#garageSection').classList.toggle('hidden', !hasGarage);
+  if (!hasGarage) {
+    $('#garageNewCarEnabled').checked = false;
+    $('#garageNewCarCountRow').classList.add('hidden');
+    $('#garageExistingCarEnabled').checked = false;
+    $('#garageExistingCarCountRow').classList.add('hidden');
+  }
 }
 
 // ============================================================
@@ -214,6 +243,49 @@ async function refreshOfficeList(savedOfficeId) {
   renderOfficeSelect(state.officesList, savedOfficeId);
 }
 
+// ============================================================
+// Garage list (GET /api/v1/customer/get-garage/, UA only) — needed to know whether
+// "запит на підбір з авто, що вже є в гаражі" is even possible before a run starts.
+// ============================================================
+
+async function fetchGarageListForTab(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        try {
+          const res = await fetch('/api/v1/customer/get-garage/', { credentials: 'same-origin' });
+          if (!res.ok) return { ok: false, status: res.status };
+          const data = await res.json();
+          return { ok: true, count: Array.isArray(data) ? data.length : 0 };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+    });
+    return result && result.ok ? result.count : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function refreshGarageList() {
+  const meta = getAdapterMeta(state.platform);
+  if (!meta || !meta.GARAGE_TEST_CAR || !state.tabId) {
+    state.garageList = [];
+    return;
+  }
+  const count = await fetchGarageListForTab(state.tabId);
+  state.garageList = new Array(count).fill(null);
+  const empty = count === 0;
+  $('#garageExistingCarEnabled').disabled = empty;
+  if (empty) {
+    $('#garageExistingCarEnabled').checked = false;
+    $('#garageExistingCarCountRow').classList.add('hidden');
+  }
+  $('#garageEmptyHint').classList.toggle('hidden', !empty);
+}
+
 function getSelected(groupName) {
   return Array.from(document.querySelectorAll(`input[data-group="${groupName}"]:checked`)).map((elm) => {
     const v = elm.value;
@@ -227,6 +299,7 @@ document.querySelectorAll('input[name="platform"]').forEach((radio) => {
     renderPlatformOptions();
     renderOfficeSelect(state.officesList, $('#officeId').value);
     renderConnectionBar();
+    await refreshGarageList();
     refreshValidation();
   });
 });
@@ -247,11 +320,23 @@ $('#oneClickEnabled').addEventListener('change', (e) => {
   refreshValidation();
 });
 
+$('#garageNewCarEnabled').addEventListener('change', (e) => {
+  $('#garageNewCarCountRow').classList.toggle('hidden', !e.target.checked);
+  refreshValidation();
+});
+
+$('#garageExistingCarEnabled').addEventListener('change', (e) => {
+  $('#garageExistingCarCountRow').classList.toggle('hidden', !e.target.checked);
+  refreshValidation();
+});
+
 ['input', 'change'].forEach((evt) => {
   $('#phone').addEventListener(evt, refreshValidation);
   $('#count').addEventListener(evt, refreshValidation);
   $('#oneClickCount').addEventListener(evt, refreshValidation);
   $('#officeId').addEventListener(evt, refreshValidation);
+  $('#garageNewCarCount').addEventListener(evt, refreshValidation);
+  $('#garageExistingCarCount').addEventListener(evt, refreshValidation);
   $('#deliveryList').addEventListener(evt, refreshValidation);
   $('#paymentList').addEventListener(evt, refreshValidation);
 });
@@ -302,9 +387,16 @@ function updatePreRunSummary() {
       );
     }
   }
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
+
   const totalLine = [];
   if (count > 0) totalLine.push(`${count} замовлень (кошик)`);
   if (oneClickCount > 0) totalLine.push(`${oneClickCount} замовлень "в 1 клік"`);
+  if (garageNewCarCount > 0) totalLine.push(`${garageNewCarCount} запитів на підбір (нове авто)`);
+  if (garageExistingCarCount > 0) totalLine.push(`${garageExistingCarCount} запитів на підбір (з гаража)`);
   box.appendChild(el('div', 'prs-total', `Буде створено: ${totalLine.join(' + ') || '0'}`));
   box.classList.remove('hidden');
 }
@@ -340,6 +432,27 @@ function canRun() {
     oneClickCount = parseStrictInt($('#oneClickCount').value, 1, 20);
     if (oneClickCount === null) {
       return { ok: false, reason: 'Кількість "1 клік" замовлень має бути цілим числом від 1 до 20.' };
+    }
+  }
+
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  let garageNewCarCount = 0;
+  if (garageNewCarEnabled) {
+    garageNewCarCount = parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT);
+    if (garageNewCarCount === null) {
+      return { ok: false, reason: `Кількість запитів на підбір (нове авто) має бути цілим числом від 1 до ${MAX_COUNT}.` };
+    }
+  }
+
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  let garageExistingCarCount = 0;
+  if (garageExistingCarEnabled) {
+    if (!state.garageList.length) {
+      return { ok: false, reason: 'Гараж порожній — запит на підбір з авто з гаража недоступний.' };
+    }
+    garageExistingCarCount = parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT);
+    if (garageExistingCarCount === null) {
+      return { ok: false, reason: `Кількість запитів на підбір (з гаража) має бути цілим числом від 1 до ${MAX_COUNT}.` };
     }
   }
 
@@ -399,6 +512,8 @@ async function injectEngine(tabId, platform) {
           'platforms/ua/ua-order-service.js',
           'platforms/ua/ua-oneclick-products.js',
           'platforms/ua/ua-oneclick-service.js',
+          'platforms/ua/ua-garage-config.js',
+          'platforms/ua/ua-garage-service.js',
         ]
       : ['platforms/pl/pl-config.js', 'platforms/pl/pl-products.js', 'platforms/pl/pl-order-service.js'];
 
@@ -435,9 +550,15 @@ $('#runBtn').addEventListener('click', () => {
   const oneClickEnabled = $('#oneClickEnabled').checked;
   const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
   const officeId = parseInt($('#officeId').value, 10) || null;
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
 
   const parts = [`Замовлень: ${count}`];
   if (oneClickCount) parts.push(`"1 клік": ${oneClickCount} (~${oneClickCount} хв через ліміт сайту)`);
+  if (garageNewCarCount) parts.push(`Запит на підбір (нове авто): ${garageNewCarCount}`);
+  if (garageExistingCarCount) parts.push(`Запит на підбір (з гаража): ${garageExistingCarCount}`);
 
   $('#confirmText').textContent =
     `🚗 Запуск Smoke Test\n\n` +
@@ -448,7 +569,7 @@ $('#runBtn').addEventListener('click', () => {
   $('#confirmOverlay').classList.remove('hidden');
   $('#confirmYes').onclick = () => {
     $('#confirmOverlay').classList.add('hidden');
-    startRun({ phone, count, deliveries, payments, oneClickCount, officeId });
+    startRun({ phone, count, deliveries, payments, oneClickCount, officeId, garageNewCarCount, garageExistingCarCount });
   };
   $('#confirmNo').onclick = () => $('#confirmOverlay').classList.add('hidden');
 });
@@ -656,7 +777,11 @@ async function startRun(config) {
 
   state.lastConfig = config;
   state.startTime = Date.now();
-  enterRunningView(config.count + config.oneClickCount, state.platform, state.siteHostname);
+  enterRunningView(
+    config.count + config.oneClickCount + config.garageNewCarCount + config.garageExistingCarCount,
+    state.platform,
+    state.siteHostname
+  );
 
   state.listener = (msg) => handleRunnerMessage(msg);
   chrome.runtime.onMessage.addListener(state.listener);
@@ -744,6 +869,7 @@ function resetToInitial() {
   detectSite().then(async () => {
     renderConnectionBar();
     await refreshOfficeList($('#officeId').value);
+    await refreshGarageList();
     refreshValidation();
   });
 }
@@ -823,7 +949,21 @@ async function init() {
     }
     if (saved.oneClickCount != null) $('#oneClickCount').value = saved.oneClickCount;
 
+    if (saved.garageNewCarEnabled) {
+      $('#garageNewCarEnabled').checked = true;
+      $('#garageNewCarCountRow').classList.remove('hidden');
+    }
+    if (saved.garageNewCarCount != null) $('#garageNewCarCount').value = saved.garageNewCarCount;
+    if (saved.garageExistingCarCount != null) $('#garageExistingCarCount').value = saved.garageExistingCarCount;
+
     await refreshOfficeList(saved.officeId);
+    await refreshGarageList();
+    // garageExistingCarEnabled restoration happens after refreshGarageList so an empty
+    // garage (disabled checkbox) can't be silently re-checked from stale storage.
+    if (saved.garageExistingCarEnabled && !$('#garageExistingCarEnabled').disabled) {
+      $('#garageExistingCarEnabled').checked = true;
+      $('#garageExistingCarCountRow').classList.remove('hidden');
+    }
     refreshValidation();
   } catch (e) {
     console.warn('Не вдалося відновити збережені налаштування:', e);
