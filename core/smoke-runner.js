@@ -39,7 +39,7 @@
     return product ? product.trademark + ' ' + product.ware_num : '';
   }
 
-  async function runCartScenario(adapter, scenario, phone, index, total) {
+  async function runCartScenario(adapter, scenario, phone, index, total, officeId) {
     const deliveryLabel = labelOf(adapter.DELIVERY_METHODS, scenario.delivery);
     const paymentLabel = labelOf(adapter.PAYMENT_METHODS, scenario.payment);
 
@@ -57,7 +57,7 @@
     }
 
     try {
-      const outcome = await adapter.runScenario(scenario, phone, (level, text) => send('SMOKE_LOG', { level, text }));
+      const outcome = await adapter.runScenario(scenario, phone, (level, text) => send('SMOKE_LOG', { level, text }), officeId);
       if (outcome.ok) {
         pushResult({ index, status: 'passed', deliveryLabel, paymentLabel, orderId: outcome.orderId, raw: outcome.raw });
       } else {
@@ -119,7 +119,7 @@
 
     stopRequested = false;
     self.__smokeRunning = true;
-    const { platform, phone, count, deliveries, payments, oneClickCount } = config;
+    const { platform, phone, count, deliveries, payments, oneClickCount, officeId } = config;
 
     const adapter = platform === 'UA' ? self.SmokeUA : self.SmokePL;
     if (!adapter) {
@@ -160,13 +160,13 @@
         break;
       }
       index++;
-      await runCartScenario(adapter, scenario, phone, index, total);
+      await runCartScenario(adapter, scenario, phone, index, total, officeId);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
     if (oneClickEnabled && !stopRequested) {
       const products = adapter.ONECLICK_PRODUCTS;
-      const officeId = adapter.CONFIG.OFFICE_ID_PICKUP;
+      const resolvedOfficeId = officeId || adapter.CONFIG.OFFICE_ID_PICKUP;
       for (let i = 0; i < oneClickCount; i++) {
         if (stopRequested) {
           self.__smokeState.stopped = true;
@@ -175,7 +175,7 @@
         }
         index++;
         const product = products[i % products.length];
-        await runOneClickScenario(adapter, product, phone, officeId, index, total);
+        await runOneClickScenario(adapter, product, phone, resolvedOfficeId, index, total);
         if (i < oneClickCount - 1 && !stopRequested) {
           send('SMOKE_LOG', { level: 'warn', text: 'Очікування 60с (ліміт "1 клік" — 1 заявка/хв на телефон)...' });
           await new Promise((resolve) => setTimeout(resolve, adapter.ONECLICK_THROTTLE_MS || 61000));

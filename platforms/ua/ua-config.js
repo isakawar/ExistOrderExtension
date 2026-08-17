@@ -38,7 +38,9 @@
   }
 
   self.SmokeUA = self.SmokeUA || {};
-  self.SmokeUA.CONFIG = { CITY_ID_NP, OFFICE_ID_SHIP, OFFICE_ID_PICKUP, ADDRESS_TEXT };
+  // DEFAULT_OFFICE_ID lets the popup fall back to the known-good office if the
+  // /api/v1/offices/ fetch fails or the QA hasn't picked one yet.
+  self.SmokeUA.CONFIG = { CITY_ID_NP, OFFICE_ID_SHIP, OFFICE_ID_PICKUP, ADDRESS_TEXT, DEFAULT_OFFICE_ID: OFFICE_ID_PICKUP };
   self.SmokeUA.DELIVERY_METHODS = DELIVERY_METHODS;
   self.SmokeUA.PAYMENT_METHODS = PAYMENT_METHODS;
   self.SmokeUA.isCombinationAllowed = isCombinationAllowed;

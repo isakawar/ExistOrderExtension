@@ -53,7 +53,7 @@
   }
 
   self.SmokePL = self.SmokePL || {};
-  self.SmokePL.CONFIG = { OFFICE_ID, ADDRESS_TEXT, CONTACT_FULL_NAME, CONTACT_EMAIL };
+  self.SmokePL.CONFIG = { OFFICE_ID, ADDRESS_TEXT, CONTACT_FULL_NAME, CONTACT_EMAIL, DEFAULT_OFFICE_ID: OFFICE_ID };
   self.SmokePL.DELIVERY_METHODS = DELIVERY_METHODS;
   self.SmokePL.PAYMENT_METHODS = PAYMENT_METHODS;
   self.SmokePL.isCombinationAllowed = isCombinationAllowed;

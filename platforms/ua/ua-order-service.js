@@ -86,7 +86,8 @@
 
   // Runs one full scenario (clear cart -> add product -> resolve delivery -> checkout).
   // `log(level, text)` streams progress back to the popup; level is 'step' | 'ok' | 'warn'.
-  async function runScenario(scenario, phone, log) {
+  // `officeId` is the QA-selected pickup office (falls back to the config default).
+  async function runScenario(scenario, phone, log, officeId) {
     const CONFIG = self.SmokeUA.CONFIG;
 
     log('step', 'Adding product...');
@@ -103,8 +104,8 @@
     let deliveryDescription = '';
 
     if (scenario.delivery === 'office') {
-      office_id = CONFIG.OFFICE_ID_PICKUP;
-      deliveryDescription = 'Самовывоз из автомагазина: Киев, Нивки';
+      office_id = officeId || CONFIG.OFFICE_ID_PICKUP;
+      deliveryDescription = 'Самовывоз из автомагазина (office_id ' + office_id + ')';
     } else if (['nova_pochta', 'nova_pochta_postomat', 'ukrpochta'].includes(scenario.delivery)) {
       delivery_service_id = await firstDepartmentId(scenario.delivery, CONFIG.CITY_ID_NP);
       deliveryDescription = 'Доставка (' + scenario.delivery + '), Киев';

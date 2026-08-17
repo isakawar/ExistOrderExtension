@@ -2,7 +2,9 @@ const $ = (sel) => document.querySelector(sel);
 
 const STORAGE_KEY = 'smokeSettings';
 // Never store credentials/session data — only QA's own form choices.
-const STORAGE_FIELDS = ['platform', 'phone', 'count', 'deliveries', 'payments', 'oneClickEnabled', 'oneClickCount'];
+const STORAGE_FIELDS = ['platform', 'phone', 'count', 'deliveries', 'payments', 'oneClickEnabled', 'oneClickCount', 'officeId'];
+const MIN_COUNT = 1;
+const MAX_COUNT = 15;
 
 const state = {
   platform: 'UA',
@@ -18,6 +20,7 @@ const state = {
   listener: null,
   environment: null,
   lastConfig: null,
+  officesList: [],
 };
 
 function getAdapterMeta(platform) {
@@ -29,6 +32,16 @@ function el(tag, className, text) {
   if (className) node.className = className;
   if (text != null) node.textContent = text;
   return node;
+}
+
+// Strict non-negative integer parse: rejects "3.5", "-5", "", "abc" instead of
+// silently coercing them (parseInt would happily turn "3.5" into 3).
+function parseStrictInt(raw, min, max) {
+  const str = String(raw == null ? '' : raw).trim();
+  if (!/^\d+$/.test(str)) return null;
+  const n = parseInt(str, 10);
+  if (n < min || n > max) return null;
+  return n;
 }
 
 // ============================================================
@@ -54,6 +67,7 @@ function saveSettings() {
     payments: getSelected('payment'),
     oneClickEnabled: $('#oneClickEnabled').checked,
     oneClickCount: $('#oneClickCount').value,
+    officeId: $('#officeId').value,
   };
   try {
     chrome.storage.local.set({ [STORAGE_KEY]: settings });
@@ -149,6 +163,57 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
   }
 }
 
+// ============================================================
+// Pickup office selection (GET /api/v1/offices/, same shape on UA & PL)
+// ============================================================
+
+async function fetchOfficesForTab(tabId) {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        try {
+          const res = await fetch('/api/v1/offices/', { credentials: 'same-origin' });
+          if (!res.ok) return { ok: false, status: res.status };
+          const data = await res.json();
+          const list = (Array.isArray(data) ? data : [])
+            .filter((o) => !o.disable_pickup)
+            .map((o) => ({ id: o.id, label: (o.city || '') + ' — ' + (o.name || o.address || ('#' + o.id)) }));
+          return { ok: true, list };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+    });
+    return result && result.ok ? result.list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderOfficeSelect(list, savedOfficeId) {
+  const select = $('#officeId');
+  const meta = getAdapterMeta(state.platform);
+  const defaultId = meta && meta.CONFIG ? meta.CONFIG.DEFAULT_OFFICE_ID : null;
+
+  select.innerHTML = '';
+  const options = list.length ? list : defaultId ? [{ id: defaultId, label: 'Магазин #' + defaultId + ' (за замовчуванням)' }] : [];
+  for (const office of options) {
+    const opt = document.createElement('option');
+    opt.value = String(office.id);
+    opt.textContent = office.label;
+    select.appendChild(opt);
+  }
+
+  const preferredId = [savedOfficeId, defaultId].find((id) => id != null && options.some((o) => String(o.id) === String(id)));
+  if (preferredId != null) select.value = String(preferredId);
+}
+
+async function refreshOfficeList(savedOfficeId) {
+  state.officesList = state.tabId ? await fetchOfficesForTab(state.tabId) : [];
+  renderOfficeSelect(state.officesList, savedOfficeId);
+}
+
 function getSelected(groupName) {
   return Array.from(document.querySelectorAll(`input[data-group="${groupName}"]:checked`)).map((elm) => {
     const v = elm.value;
@@ -157,9 +222,10 @@ function getSelected(groupName) {
 }
 
 document.querySelectorAll('input[name="platform"]').forEach((radio) => {
-  radio.addEventListener('change', (e) => {
+  radio.addEventListener('change', async (e) => {
     state.platform = e.target.value;
     renderPlatformOptions();
+    renderOfficeSelect(state.officesList, $('#officeId').value);
     renderConnectionBar();
     refreshValidation();
   });
@@ -185,6 +251,7 @@ $('#oneClickEnabled').addEventListener('change', (e) => {
   $('#phone').addEventListener(evt, refreshValidation);
   $('#count').addEventListener(evt, refreshValidation);
   $('#oneClickCount').addEventListener(evt, refreshValidation);
+  $('#officeId').addEventListener(evt, refreshValidation);
   $('#deliveryList').addEventListener(evt, refreshValidation);
   $('#paymentList').addEventListener(evt, refreshValidation);
 });
@@ -208,9 +275,9 @@ function updatePreRunSummary() {
   const meta = getAdapterMeta(state.platform);
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
-  const count = parseInt($('#count').value, 10) || 0;
+  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
+  const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
 
   if (!meta || (!deliveries.length && !oneClickCount)) {
     box.classList.add('hidden');
@@ -254,26 +321,36 @@ function canRun() {
 
   const phone = $('#phone').value.trim();
   if (!phone) return { ok: false, reason: 'Вкажіть номер телефону.' };
+  if (!window.SmokePhoneValidator || !window.SmokePhoneValidator.isValidPhone(phone, state.platform)) {
+    const hint = state.platform === 'PL' ? '+48XXXXXXXXX або +380XXXXXXXXX' : '+380XXXXXXXXX';
+    return { ok: false, reason: `Невірний формат телефону (${state.platform}). Очікується: ${hint}.` };
+  }
 
-  const count = parseInt($('#count').value, 10) || 0;
+  const rawCount = $('#count').value;
+  const count = parseStrictInt(rawCount, MIN_COUNT, MAX_COUNT);
+  if (count === null) {
+    return { ok: false, reason: `Кількість замовлень має бути цілим числом від ${MIN_COUNT} до ${MAX_COUNT}.` };
+  }
+
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
-
-  const cartRequested = count > 0;
-  if (cartRequested && (!deliveries.length || !payments.length)) {
-    return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати (або встановіть кількість 0).' };
-  }
-  if (cartRequested) {
-    const meta = getAdapterMeta(state.platform);
-    const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
-    if (stats.validCombos === 0) {
-      return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
+  let oneClickCount = 0;
+  if (oneClickEnabled) {
+    oneClickCount = parseStrictInt($('#oneClickCount').value, 1, 20);
+    if (oneClickCount === null) {
+      return { ok: false, reason: 'Кількість "1 клік" замовлень має бути цілим числом від 1 до 20.' };
     }
   }
-  if (!cartRequested && !oneClickCount) {
-    return { ok: false, reason: 'Вкажіть кількість замовлень або увімкніть "Замовлення в 1 клік".' };
+
+  if (!deliveries.length || !payments.length) {
+    return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати.' };
+  }
+
+  const meta = getAdapterMeta(state.platform);
+  const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
+  if (stats.validCombos === 0) {
+    return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
   }
   return { ok: true };
 }
@@ -283,6 +360,9 @@ function refreshValidation() {
   updatePreRunSummary();
   const check = canRun();
   $('#runBtn').disabled = !check.ok;
+  $('#runBtn').title = check.ok ? '' : check.reason;
+  $('#runBlockedHint').textContent = check.ok ? '' : '⚠️ ' + check.reason;
+  $('#runBlockedHint').classList.toggle('hidden', check.ok);
   saveSettings();
 }
 
@@ -349,15 +429,14 @@ $('#runBtn').addEventListener('click', () => {
   if (!check.ok) return alert(check.reason);
 
   const phone = $('#phone').value.trim();
-  const count = parseInt($('#count').value, 10) || 0;
+  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
   const oneClickEnabled = $('#oneClickEnabled').checked;
-  const oneClickCount = oneClickEnabled ? parseInt($('#oneClickCount').value, 10) || 0 : 0;
-  const cartRequested = count > 0;
+  const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
+  const officeId = parseInt($('#officeId').value, 10) || null;
 
-  const parts = [];
-  if (cartRequested) parts.push(`Замовлень: ${count}`);
+  const parts = [`Замовлень: ${count}`];
   if (oneClickCount) parts.push(`"1 клік": ${oneClickCount} (~${oneClickCount} хв через ліміт сайту)`);
 
   $('#confirmText').textContent =
@@ -369,7 +448,7 @@ $('#runBtn').addEventListener('click', () => {
   $('#confirmOverlay').classList.remove('hidden');
   $('#confirmYes').onclick = () => {
     $('#confirmOverlay').classList.add('hidden');
-    startRun({ phone, count: cartRequested ? count : 0, deliveries, payments, oneClickCount });
+    startRun({ phone, count, deliveries, payments, oneClickCount, officeId });
   };
   $('#confirmNo').onclick = () => $('#confirmOverlay').classList.add('hidden');
 });
@@ -662,8 +741,9 @@ function resetToInitial() {
 
   $('#headerStatus').classList.add('hidden');
 
-  detectSite().then(() => {
+  detectSite().then(async () => {
     renderConnectionBar();
+    await refreshOfficeList($('#officeId').value);
     refreshValidation();
   });
 }
@@ -721,6 +801,7 @@ async function init() {
   // change) must never leave the popup showing empty delivery/payment lists.
   document.querySelector(`input[name="platform"][value="${state.platform}"]`).checked = true;
   renderPlatformOptions();
+  renderOfficeSelect([], null);
   renderConnectionBar();
   refreshValidation();
 
@@ -742,6 +823,7 @@ async function init() {
     }
     if (saved.oneClickCount != null) $('#oneClickCount').value = saved.oneClickCount;
 
+    await refreshOfficeList(saved.officeId);
     refreshValidation();
   } catch (e) {
     console.warn('Не вдалося відновити збережені налаштування:', e);
