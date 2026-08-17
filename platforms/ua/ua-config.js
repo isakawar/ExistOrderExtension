@@ -44,4 +44,8 @@
   self.SmokeUA.DELIVERY_METHODS = DELIVERY_METHODS;
   self.SmokeUA.PAYMENT_METHODS = PAYMENT_METHODS;
   self.SmokeUA.isCombinationAllowed = isCombinationAllowed;
+  // Default checkbox selection on first load (no saved settings yet) — the lightest
+  // valid combo, so a fresh install runs one office/cash order rather than the full matrix.
+  self.SmokeUA.DEFAULT_DELIVERY_IDS = ['office'];
+  self.SmokeUA.DEFAULT_PAYMENT_IDS = [5];
 })();

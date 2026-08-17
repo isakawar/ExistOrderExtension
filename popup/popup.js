@@ -153,7 +153,7 @@ function renderCheckboxes(container, items, groupName, checkedIds) {
     input.type = 'checkbox';
     input.dataset.group = groupName;
     input.value = String(item.id);
-    input.checked = checkedIds ? checkedIds.includes(item.id) : true;
+    input.checked = checkedIds.includes(item.id);
     wrap.appendChild(input);
     wrap.appendChild(el('span', null, item.label));
     container.appendChild(wrap);
@@ -168,8 +168,13 @@ function renderPlatformOptions(savedDeliveries, savedPayments) {
     $('#oneClickSection').classList.add('hidden');
     return;
   }
-  renderCheckboxes($('#deliveryList'), meta.DELIVERY_METHODS, 'delivery', savedDeliveries);
-  renderCheckboxes($('#paymentList'), meta.PAYMENT_METHODS, 'payment', savedPayments);
+  // On first-ever load (no saved settings) default to the lightest valid combo
+  // (office/cash) rather than checking every box — a fresh install shouldn't run
+  // the full delivery x payment matrix by surprise.
+  const defaultDeliveries = savedDeliveries || meta.DEFAULT_DELIVERY_IDS || [];
+  const defaultPayments = savedPayments || meta.DEFAULT_PAYMENT_IDS || [];
+  renderCheckboxes($('#deliveryList'), meta.DELIVERY_METHODS, 'delivery', defaultDeliveries);
+  renderCheckboxes($('#paymentList'), meta.PAYMENT_METHODS, 'payment', defaultPayments);
 
   // "1 клік" is UA-only business logic — only show the toggle when the adapter
   // actually implements it (see platforms/ua/ua-oneclick-*.js).
