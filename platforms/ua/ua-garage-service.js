@@ -8,6 +8,29 @@
     return m ? m.pop() : '';
   }
 
+  // A VIN with a correct ISO 3779 check digit (position 9) — a garage entry created with
+  // vin: null doesn't show up properly under "Мои запросы по VIN/FRAME", so every test car
+  // needs a syntactically valid one instead. Random 16 chars + computed check digit.
+  const VIN_CHARS = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789'; // no I, O, Q
+  const VIN_VALUES = {
+    A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, J: 1, K: 2, L: 3, M: 4, N: 5,
+    P: 7, R: 9, S: 2, T: 3, U: 4, V: 5, W: 6, X: 7, Y: 8, Z: 9,
+    0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9,
+  };
+  const VIN_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
+
+  function generateVin() {
+    const chars = new Array(17);
+    for (let i = 0; i < 17; i++) {
+      chars[i] = i === 8 ? '0' : VIN_CHARS[Math.floor(Math.random() * VIN_CHARS.length)];
+    }
+    let sum = 0;
+    for (let i = 0; i < 17; i++) sum += VIN_VALUES[chars[i]] * VIN_WEIGHTS[i];
+    const remainder = sum % 11;
+    chars[8] = remainder === 10 ? 'X' : String(remainder);
+    return chars.join('');
+  }
+
   // Same PRELOADED_STATE extraction ua-oneclick-service.js uses for product pages —
   // here we fetch /garage/ instead, since that's guaranteed to embed `session`.
   function extractPreloadedState(html) {
@@ -72,7 +95,7 @@
     const car = pool[Math.floor(Math.random() * pool.length)];
     return api('/api/v1/customer/create-garage/', 'POST', {
       is_main: false,
-      vin: null,
+      vin: generateVin(),
       comment: '',
       year: car.year,
       modification: car.modification,

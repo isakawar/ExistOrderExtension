@@ -16,7 +16,6 @@ const STORAGE_FIELDS = [
   'garageExistingCarEnabled',
   'garageExistingCarCount',
 ];
-const MIN_COUNT = 1;
 const MAX_COUNT = 15;
 
 const state = {
@@ -365,11 +364,15 @@ function updatePreRunSummary() {
   const meta = getAdapterMeta(state.platform);
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
-  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
+  const count = parseStrictInt($('#count').value, 0, MAX_COUNT) || 0;
   const oneClickEnabled = $('#oneClickEnabled').checked;
   const oneClickCount = oneClickEnabled ? parseStrictInt($('#oneClickCount').value, 1, 20) || 0 : 0;
+  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
+  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
+  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
+  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
 
-  if (!meta || (!deliveries.length && !oneClickCount)) {
+  if (!meta || (!deliveries.length && !oneClickCount && !garageNewCarCount && !garageExistingCarCount)) {
     box.classList.add('hidden');
     return;
   }
@@ -392,11 +395,6 @@ function updatePreRunSummary() {
       );
     }
   }
-  const garageNewCarEnabled = $('#garageNewCarEnabled').checked;
-  const garageNewCarCount = garageNewCarEnabled ? parseStrictInt($('#garageNewCarCount').value, 1, MAX_COUNT) || 0 : 0;
-  const garageExistingCarEnabled = $('#garageExistingCarEnabled').checked;
-  const garageExistingCarCount = garageExistingCarEnabled ? parseStrictInt($('#garageExistingCarCount').value, 1, MAX_COUNT) || 0 : 0;
-
   const totalLine = [];
   if (count > 0) totalLine.push(`${count} замовлень (кошик)`);
   if (oneClickCount > 0) totalLine.push(`${oneClickCount} замовлень "в 1 клік"`);
@@ -424,9 +422,9 @@ function canRun() {
   }
 
   const rawCount = $('#count').value;
-  const count = parseStrictInt(rawCount, MIN_COUNT, MAX_COUNT);
+  const count = parseStrictInt(rawCount, 0, MAX_COUNT);
   if (count === null) {
-    return { ok: false, reason: `Кількість замовлень має бути цілим числом від ${MIN_COUNT} до ${MAX_COUNT}.` };
+    return { ok: false, reason: `Кількість замовлень має бути цілим числом від 0 до ${MAX_COUNT}.` };
   }
 
   const deliveries = getSelected('delivery');
@@ -461,14 +459,23 @@ function canRun() {
     }
   }
 
-  if (!deliveries.length || !payments.length) {
-    return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати.' };
+  const cartRequested = count > 0;
+  if (cartRequested) {
+    if (!deliveries.length || !payments.length) {
+      return { ok: false, reason: 'Виберіть хоча б один спосіб доставки і оплати (або встановіть кількість 0).' };
+    }
+    const meta = getAdapterMeta(state.platform);
+    const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
+    if (stats.validCombos === 0) {
+      return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
+    }
   }
 
-  const meta = getAdapterMeta(state.platform);
-  const stats = computeComboStats(deliveries, payments, meta && meta.isCombinationAllowed);
-  if (stats.validCombos === 0) {
-    return { ok: false, reason: 'Жодна обрана комбінація доставки/оплати не є валідною для цієї платформи.' };
+  if (!cartRequested && !oneClickCount && !garageNewCarCount && !garageExistingCarCount) {
+    return {
+      ok: false,
+      reason: 'Вкажіть кількість замовлень (кошик) або увімкніть "1 клік"/"запит на підбір".',
+    };
   }
   return { ok: true };
 }
@@ -555,7 +562,7 @@ $('#runBtn').addEventListener('click', () => {
   if (!check.ok) return alert(check.reason);
 
   const phone = $('#phone').value.trim();
-  const count = parseStrictInt($('#count').value, MIN_COUNT, MAX_COUNT) || 0;
+  const count = parseStrictInt($('#count').value, 0, MAX_COUNT) || 0;
   const deliveries = getSelected('delivery');
   const payments = getSelected('payment');
   const oneClickEnabled = $('#oneClickEnabled').checked;
